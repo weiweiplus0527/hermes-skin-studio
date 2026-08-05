@@ -2364,6 +2364,8 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
         const rainState = rainCanvas
           ? 'canvas✓' + (rainRaf ? '+动画' : '+停')
           : '无canvas'
+        const themeCount = themeMap ? themeMap.size : -1
+        const hanziRegistered = themeMap ? themeMap.has('ss-hanzi-rain') : false
         storageEstimate().then(est => {
           setDiag({
             active,
@@ -2378,7 +2380,9 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
             vid,
             libCount: lib.length,
             libNames: lib.map(e => e.name).join('、'),
-            rainState
+            rainState,
+            themeCount,
+            hanziRegistered
           })
         })
         // 实测 IDB：当前视频数据能否读到（大小 / 丢失）。
@@ -3262,6 +3266,8 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                       }),
                       jsx('div', { children: '当前视频ID: ' + (diag.vid || '无') }),
                       jsx('div', { children: '雨状态: ' + (diag.rainState || '?') }),
+                      jsx('div', { children: '主题注册: ' + (diag.themeCount ?? '?') + '个' }),
+                      jsx('div', { children: '汉字雨已注册: ' + (diag.hanziRegistered ? '✓' : '✗') }),
                       jsx('div', { children: 'IDB读取: ' + (diag.idbSize === null ? '未测' : diag.idbSize < 0 ? '❌ 数据丢失' : fmtSize(diag.idbSize)) }),
                       jsx('div', { className: 'col-span-2', children: '媒体库(' + (diag.libCount || 0) + '): ' + (diag.libNames || '空') }),
                       jsx('div', { children: diag.error ? '错误: ' + diag.error : '代码块背景: ' + (diag.bg || '无') }),
