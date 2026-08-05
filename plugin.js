@@ -992,8 +992,26 @@ const STORAGE_IMG_KEY = 'ss-custom-img-v1'
 // 本地视频改存 IndexedDB（容量可达 GB 级，不再受 localStorage 3.5MB 限制）。
 // 主题 JSON 里只存 videoId 标记，启动时从 IDB 读回 blob → objectURL。
 const STORAGE_VIDEO_ID_KEY = 'ss-video-id'
+// 视频媒体库：IndexedDB 存视频本体，localStorage 只存元数据列表
+//（[{id, name, size, date}]），最多保留 VIDEO_LIB_MAX 个，超出自动清理最旧。
+const STORAGE_VIDEO_LIB_KEY = 'ss-video-lib'
+const VIDEO_LIB_MAX = 5
 const IDB_NAME = 'skin-studio-media'
 const IDB_STORE = 'videos'
+
+function readVideoLib() {
+  try {
+    const raw = storage?.get(STORAGE_VIDEO_LIB_KEY, null)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+function writeVideoLib(lib) {
+  storage?.set(STORAGE_VIDEO_LIB_KEY, JSON.stringify(lib.slice(0, VIDEO_LIB_MAX)))
+}
 
 function idbOpen() {
   return new Promise((resolve, reject) => {
@@ -1035,6 +1053,29 @@ async function idbDel(key) {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
+}
+
+// 请求持久化存储（IndexedDB 默认为「尽力而为」模式，配额小且可能被系统
+// 清理；persist() 后数据稳定保留，配额也大幅放宽）。
+async function ensurePersistentStorage() {
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      await navigator.storage.persist()
+    }
+  } catch {
+    // 非致命：尽力而为模式下仍可写入，只是配额较小。
+  }
+}
+
+// 查询当前存储配额与使用量（供诊断显示）。
+async function storageEstimate() {
+  try {
+    if (!navigator.storage || !navigator.storage.estimate) return null
+    const e = await navigator.storage.estimate()
+    return { usage: e.usage, quota: e.quota }
+  } catch {
+    return null
+  }
 }
 
 const PRESETS = [forgeCyber, forgeGlass, forgePaper, forgeMatrix, forgeHacker, ssInk, ssQinghua, ssGugong, ssBamboo, ssDunhuang, ssHanziRain, ssEva, ssGundam, ssMiku, ssKimetsu]
@@ -2165,6 +2206,7 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
   const [saved, setSaved] = useState(true)
   const [localFile, setLocalFile] = useState(null) // { name, size } of the picked image
   const [localVideo, setLocalVideo] = useState(null) // { name, size, persistent } of the picked video
+  const [videoLib, setVideoLib] = useState(() => readVideoLib()) // 已保存的视频媒体库
   const [applyName, setApplyName] = useState(CUSTOM_NAME)
   // 诊断信息：当前主题、代码块数量与计算样式（用于排查配色不生效问题）。
   const [diag, setDiag] = useState(null)
@@ -2190,7 +2232,19 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
         }
         const cssEl = document.getElementById(CSS_ID)
         const injected = cssEl ? cssEl.textContent.length : 0
-        setDiag({ active, blocks, fences, inlines, bg, color, injected })
+        storageEstimate().then(est => {
+          setDiag({
+            active,
+            blocks,
+            fences,
+            inlines,
+            bg,
+            color,
+            injected,
+            quota: est ? est.quota : null,
+            usage: est ? est.usage : null
+          })
+        })
       } catch (e) {
         setDiag({ error: String(e && e.message ? e.message : e) })
       }
@@ -2233,8 +2287,8 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
   }
 
   // Local video picker. 视频存 IndexedDB（容量大，不再受 localStorage 限制）：
-  // blob URL 即时播放，同时把 File 写入 IDB；重启后从 IDB 读回恢复。
-  // 只有删除视频时才清理 IDB 记录。
+  // blob URL 即时播放，同时把 File 写入 IDB 媒体库；重启后从 IDB 读回恢复。
+  // 媒体库最多保留 VIDEO_LIB_MAX 个，超出自动删除最旧的（不无限累积）。
   function pickLocalVideo(file) {
     if (!file) return
     const type = String(file.type || '')
@@ -2249,30 +2303,66 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
     const videoId = 'v-' + Date.now()
     setLocalVideo({ name: file.name, size: file.size, persistent: true })
     bumpExtras({ backgroundVideo: objUrl, localVideoId: videoId })
-    idbPut(videoId, file)
+    ensurePersistentStorage()
+      .then(() => idbPut(videoId, file))
       .then(() => {
+        const lib = readVideoLib()
+        lib.push({ id: videoId, name: file.name, size: file.size, date: Date.now() })
+        // 超出上限删除最旧的（连同 IDB 记录），避免存储无限累积。
+        const removed = lib.splice(0, Math.max(0, lib.length - VIDEO_LIB_MAX))
+        removed.forEach(e => idbDel(e.id).catch(() => {}))
+        writeVideoLib(lib)
+        setVideoLib(lib)
         storage?.set(STORAGE_VIDEO_ID_KEY, videoId)
         host.notify({
           kind: 'info',
-          message: `视频已保存（${fmtSize(file.size)}，重启后依然保留）`
+          message: `视频已保存到媒体库（${fmtSize(file.size)}，重启后依然保留）`
         })
       })
-      .catch(() => {
+      .catch(err => {
         host.notify({
           kind: 'error',
-          message: '视频保存失败——当前会话可用，重启后需重新选择。'
+          message: `视频保存失败：${String((err && err.message) || err)}。当前会话可用，重启后需重新选择。`
         })
       })
   }
 
+  // 从媒体库应用已保存的视频（无需重新上传）。
+  function useVideoFromLib(entry) {
+    idbGet(entry.id).then(blob => {
+      if (!blob) {
+        host.notify({
+          kind: 'error',
+          message: `「${entry.name}」的数据已丢失（存储被清理），请重新上传。`
+        })
+        delVideoFromLib(entry.id)
+        return
+      }
+      const url = URL.createObjectURL(blob)
+      setLocalVideo({ name: entry.name, size: entry.size, persistent: true })
+      storage?.set(STORAGE_VIDEO_ID_KEY, entry.id)
+      bumpExtras({ backgroundVideo: url, localVideoId: entry.id })
+    })
+  }
+
+  // 从媒体库删除一个视频（若正被使用则同时清掉背景视频）。
+  function delVideoFromLib(id) {
+    idbDel(id).catch(() => {})
+    const lib = readVideoLib().filter(e => e.id !== id)
+    writeVideoLib(lib)
+    setVideoLib(lib)
+    if (storage?.get(STORAGE_VIDEO_ID_KEY, null) === id) {
+      storage?.remove(STORAGE_VIDEO_ID_KEY)
+      setLocalVideo(null)
+      bumpExtras({ backgroundVideo: null, localVideoId: null })
+    }
+  }
+
+  // 移除当前背景视频（媒体库记录保留，可随时再点用）。
   function clearLocalVideo() {
     setLocalVideo(null)
     bumpExtras({ backgroundVideo: null, localVideoId: null })
-    const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
-    if (vid) {
-      idbDel(vid).catch(() => {})
-      storage?.remove(STORAGE_VIDEO_ID_KEY)
-    }
+    storage?.remove(STORAGE_VIDEO_ID_KEY)
   }
 
   function fmtSize(bytes) {
@@ -2686,6 +2776,39 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                                 })
                               }
                             }
+                          }),
+                          jsxs('div', {
+                            className: 'flex flex-col gap-1',
+                            children: [
+                              jsx('p', {
+                                className: 'text-[0.625rem] text-(--ui-text-quaternary)',
+                                children: '已保存的视频（点击即用，无需重新上传）：'
+                              }),
+                              videoLib.length === 0
+                                ? jsx('p', {
+                                    className: 'text-[0.625rem] text-(--ui-text-quaternary)',
+                                    children: '暂无——从本机选择视频后会自动保存在这里（最多保留 5 个）'
+                                  })
+                                : videoLib.map(entry =>
+                                    jsxs('div', {
+                                      key: entry.id,
+                                      className: 'flex items-center gap-2',
+                                      children: [
+                                        jsx('button', {
+                                          className: 'min-w-0 flex-1 truncate text-left text-xs text-(--ui-text-secondary) hover:text-(--ui-text-primary)',
+                                          onClick: () => useVideoFromLib(entry),
+                                          children:
+                                            '▶ ' + entry.name + '（' + fmtSize(entry.size) + '）'
+                                        }),
+                                        jsx('button', {
+                                          className: 'shrink-0 text-xs text-(--ui-destructive) hover:opacity-80',
+                                          onClick: () => delVideoFromLib(entry.id),
+                                          children: '✕ 删除'
+                                        })
+                                      ]
+                                    })
+                                  )
+                            ]
                           })
                         ]
                       }),
@@ -2875,6 +2998,12 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                       jsx('div', { children: '代码块: ' + (diag.blocks || 0) }),
                       jsx('div', { children: '围栏: ' + (diag.fences || 0) }),
                       jsx('div', { children: '行内代码: ' + (diag.inlines || 0) }),
+                      jsx('div', {
+                        className: 'col-span-2',
+                        children: diag.quota
+                          ? '存储配额: ' + fmtSize(diag.quota) + ' / 已用 ' + fmtSize(diag.usage || 0)
+                          : ''
+                      }),
                       jsx('div', { children: diag.error ? '错误: ' + diag.error : '代码块背景: ' + (diag.bg || '无') }),
                       jsx('div', { className: 'col-span-2', children: '代码块文字: ' + (diag.color || '无') })
                     ]
