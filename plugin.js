@@ -1730,12 +1730,13 @@ function resizeRain() {
   const fontSize = rainFontSizeOf(forge)
   const isHanzi = Boolean(forge?.hanziRain)
   if (isHanzi) {
-    // 汉字雨（列链模式）：列距 3x 字号——稀疏疏朗，不抢视野。
-    const step = fontSize * 3
+    // 汉字雨（列链模式）：列距 4x 字号——非常稀疏，安静不打扰。
+    const step = fontSize * 4
     const cols = Math.ceil(rainCanvas.width / step)
     rainCols = Array.from({ length: cols }, () => ({
       y: Math.random() * -rainCanvas.height,
-      len: 2 + Math.floor(Math.random() * 4), // 尾链长度 2–5 字
+      acc: Math.random(), // 累积位移（控制加字节奏，慢速不堆字的关键）
+      len: 2 + Math.floor(Math.random() * 3), // 尾链长度 2–4 字
       chars: []
     }))
   } else {
@@ -1787,18 +1788,24 @@ function tickRain() {
   if (isHanzi) {
     // 汉字雨（列链模式）：每列一串字，头部亮、尾部渐隐——慢速不堆字、
     // 不闪烁、不抢视野。头部 7% 概率朱砂印章红。
+    // 加字节奏：累积位移满一个字距才加新字（速度再慢，字距也恒为字号，
+    // 不会挤成一团）。
     ctx.font = fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
-    const step = fontSize * 3
+    const step = fontSize * 4
     for (let i = 0; i < rainCols.length; i++) {
       const col = rainCols[i]
       col.y += speed * fontSize
+      col.acc += speed
       if (col.y - col.len * fontSize > h) {
         col.y = -Math.random() * h
-        col.len = 3 + Math.floor(Math.random() * 5)
+        col.len = 2 + Math.floor(Math.random() * 3)
         col.chars = []
       }
-      col.chars.unshift(RAIN_CHARS[Math.floor(Math.random() * RAIN_CHARS.length)])
-      if (col.chars.length > col.len) col.chars.pop()
+      while (col.acc >= 1) {
+        col.acc -= 1
+        col.chars.unshift(RAIN_CHARS[Math.floor(Math.random() * RAIN_CHARS.length)])
+        if (col.chars.length > col.len) col.chars.pop()
+      }
       for (let k = 0; k < col.chars.length; k++) {
         // 头部 0.85 亮度，尾部渐隐到 0.12——柔和不刺眼。
         const alpha = k === 0 ? 0.85 : Math.max(0.12, 0.45 - k * 0.11)
