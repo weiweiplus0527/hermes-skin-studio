@@ -1815,9 +1815,15 @@ function tickRainInner() {
     // 不闪烁、不抢视野。头部 7% 概率朱砂印章红。
     // 加字节奏：累积位移满一个字距才加新字（速度再慢，字距也恒为字号，
     // 不会挤成一团）。
-    // 颜色用高亮白（雨层在玻璃之下会被半透明背景压暗，必须够亮）。
+    // 颜色用高亮白 + 黑色光晕衬底（雨层在玻璃/壁纸之上会被压暗或与
+    // 亮色背景混在一起——黑晕让字在任何背景下都清晰）。
     ctx.font =
       '600 ' + fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
+    ctx.save()
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)'
+    ctx.shadowBlur = 6
+    ctx.shadowOffsetX = 1
+    ctx.shadowOffsetY = 1
     const step = fontSize * 4
     for (let i = 0; i < rainCols.length; i++) {
       const col = rainCols[i]
@@ -1843,6 +1849,7 @@ function tickRainInner() {
         ctx.fillText(col.chars[k], i * step, col.y - k * fontSize)
       }
     }
+    ctx.restore()
   } else {
     // 数字雨：原版单字 + 拖尾（荧光绿系）。
     ctx.font = fontSize + 'px "JetBrains Mono", ui-monospace, monospace'
