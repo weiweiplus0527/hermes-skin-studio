@@ -1138,6 +1138,16 @@ function loadCustom() {
 
 let saveWarned = false
 
+// 安全通知：模块级函数里 host 是 SDK 导入（组件/函数里若有局部变量
+// 也叫 host 会遮蔽它，导致 host.notify 不是函数——统一走这里）。
+function notifyUser(msg) {
+  try {
+    host.notify(msg)
+  } catch {
+    // 通知失败不影响功能
+  }
+}
+
 // 启动时从 IndexedDB 恢复本地视频（大视频持久化的关键一步）。
 // 完成后通过全局事件通知面板组件同步 state（否则面板的防抖保存会用
 // 无视频的旧 state 覆盖掉刚恢复的视频）。
@@ -1593,13 +1603,11 @@ function paintMedia(theme) {
       v.style.cssText = base + `object-fit:${fit};`
       v.addEventListener('error', () => {
         console.error('[skin-studio] 背景视频加载失败: ' + String(video).slice(0, 120))
-        if (typeof host !== 'undefined') {
-          host.notify({
-            kind: 'error',
-            message:
-              '视频加载失败——请确认是视频文件直链（以 .mp4/.webm 结尾），且网站允许外链播放。'
-          })
-        }
+        notifyUser({
+          kind: 'error',
+          message:
+            '视频加载失败——请确认是视频文件直链（以 .mp4/.webm 结尾），且网站允许外链播放。'
+        })
       })
       host.appendChild(v)
       mediaEl = v
@@ -1835,7 +1843,14 @@ function tickRain() {
   rainRaf = requestAnimationFrame(tickRain)
 }
 function startMatrixRain() {
-  if (rainCanvas || typeof document === 'undefined') return
+  if (typeof document === 'undefined') return
+  if (rainCanvas) {
+    // canvas 已存在（皮肤工坊主题之间切换：数字雨↔汉字雨）——必须重建列
+    // 布局，否则列数组类型不匹配（数字 vs 对象），tickRain 直接崩溃，
+    // 雨消失。
+    resizeRain()
+    return
+  }
   const host = ensureFxContainer()
   const canvas = document.createElement('canvas')
   canvas.style.cssText = `position:absolute;inset:0;width:100%;height:100%;z-index:${RAIN_Z};`
@@ -1861,6 +1876,22 @@ function addScanlines() {
 
 function startFx(theme) {
   const f = theme.forge || {}
+  const wantsRain = Boolean(f.matrixRain || f.hanziRain)
+  if (!wantsRain && rainRaf) {
+    // 切到无雨主题：停掉正在运行的雨（否则雨会一直下）。
+    cancelAnimationFrame(rainRaf)
+    rainRaf = null
+    if (rainCanvas) {
+      rainCanvas.remove()
+      rainCanvas = null
+      rainCtx = null
+      rainCols = []
+    }
+    if (fxResizeObserver) {
+      fxResizeObserver.disconnect()
+      fxResizeObserver = null
+    }
+  }
   // Overlay sits above the media (z-index 1), below rain/scanlines.
   if (f.overlayOpacity > 0) {
     const host = ensureFxContainer()
