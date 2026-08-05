@@ -1777,10 +1777,14 @@ function tickRain() {
     lastRainFontSize = fontSize
     resizeRain()
   }
-  // 淡擦除：汉字雨擦除率高（0.18）——慢速下旧帧残影快速消失，
-  // 字迹清晰移动不堆墨；数字雨保留原版拖尾（0.09）。
-  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.18)' : 'rgba(0, 0, 0, 0.09)'
-  ctx.fillRect(0, 0, w, h)
+  // 擦除策略：汉字雨用 clearRect 全清重绘——零残影、字迹绝对清晰、
+  // 字距固定、慢慢飘不堆叠；数字雨保留原版淡擦除拖尾（0.09）。
+  if (isHanzi) {
+    ctx.clearRect(0, 0, w, h)
+  } else {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.09)'
+    ctx.fillRect(0, 0, w, h)
+  }
   const accent =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-accent').trim() || '#00FF41'
   const seal =
