@@ -1273,10 +1273,13 @@ function buildCss(theme) {
     editorMix = dark ? '10%' : '34%'
     elevatedMix = dark ? '55%' : '68%'
   } else if (fxOnly) {
-    chromeMix = dark ? '50%' : '82%'
-    sidebarMix = dark ? '74%' : '92%'
-    editorMix = dark ? '34%' : '64%'
-    elevatedMix = dark ? '60%' : '78%'
+    // 只有特效（雨/扫描线）没有媒体：玻璃高度透明——雨在玻璃后依然
+    // 清晰可见（这是无背景图时看雨的关键）；背景显示主题纯色，
+    // 可读性反而更好（对比更强）。
+    chromeMix = dark ? '12%' : '60%'
+    sidebarMix = dark ? '40%' : '78%'
+    editorMix = dark ? '8%' : '40%'
+    elevatedMix = dark ? '50%' : '70%'
   } else {
     chromeMix = sidebarMix = editorMix = elevatedMix = '100%'
   }
