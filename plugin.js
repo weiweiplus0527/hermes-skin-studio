@@ -1136,15 +1136,24 @@ function loadCustom() {
 let saveWarned = false
 
 // 启动时从 IndexedDB 恢复本地视频（大视频持久化的关键一步）。
+// 完成后通过全局事件通知面板组件同步 state（否则面板的防抖保存会用
+// 无视频的旧 state 覆盖掉刚恢复的视频）。
 async function restoreLocalVideo() {
   try {
     const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
     if (!vid || !customTheme) return
     const blob = await idbGet(vid)
     if (blob) {
-      customTheme.forge.backgroundVideo = URL.createObjectURL(blob)
+      const url = URL.createObjectURL(blob)
+      customTheme.forge.backgroundVideo = url
       customTheme.forge.localVideoId = vid
       publishCustom()
+      const entry = readVideoLib().find(e => e.id === vid)
+      document.dispatchEvent(
+        new CustomEvent('skin-studio:video-restored', {
+          detail: { url, id: vid, name: entry ? entry.name : '视频', size: entry ? entry.size : blob.size }
+        })
+      )
     } else {
       // IDB 记录丢失（数据库被清）——清理标记，避免死引用。
       storage?.remove(STORAGE_VIDEO_ID_KEY)
@@ -2232,6 +2241,8 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
         }
         const cssEl = document.getElementById(CSS_ID)
         const injected = cssEl ? cssEl.textContent.length : 0
+        const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
+        const lib = readVideoLib()
         storageEstimate().then(est => {
           setDiag({
             active,
@@ -2242,9 +2253,20 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
             color,
             injected,
             quota: est ? est.quota : null,
-            usage: est ? est.usage : null
+            usage: est ? est.usage : null,
+            vid,
+            libCount: lib.length,
+            libNames: lib.map(e => e.name).join('、')
           })
         })
+        // 实测 IDB：当前视频数据能否读到（大小 / 丢失）。
+        if (vid) {
+          idbGet(vid).then(blob => {
+            setDiag(d => ({ ...d, idbSize: blob ? blob.size : -1 }))
+          })
+        } else {
+          setDiag(d => ({ ...d, idbSize: null }))
+        }
       } catch (e) {
         setDiag({ error: String(e && e.message ? e.message : e) })
       }
@@ -2413,11 +2435,57 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
     }
   }
 
+  // 面板挂载时主动检查本地视频：若 state 缺视频但存储有 ID，异步读回同步
+  //（双保险——restore 事件可能在面板未打开时错过监听）。
+  useEffect(() => {
+    const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
+    if (vid && !state.forge.backgroundVideo) {
+      idbGet(vid).then(blob => {
+        if (!blob) return
+        const url = URL.createObjectURL(blob)
+        const entry = readVideoLib().find(e => e.id === vid)
+        setState(prev => ({
+          ...prev,
+          forge: { ...prev.forge, backgroundVideo: url, localVideoId: vid }
+        }))
+        setLocalVideo({
+          name: entry ? entry.name : '视频',
+          size: entry ? entry.size : blob.size,
+          persistent: true
+        })
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 监听模块级 restoreLocalVideo 的恢复事件：同步面板 state（防抖保存
+  // 不再用无视频的旧 state 覆盖 customTheme 的已恢复视频）。
+  useEffect(() => {
+    const onRestore = e => {
+      const d = e.detail || {}
+      setState(prev => ({
+        ...prev,
+        forge: { ...prev.forge, backgroundVideo: d.url, localVideoId: d.id }
+      }))
+      setLocalVideo({ name: d.name || '视频', size: d.size || 0, persistent: true })
+    }
+    document.addEventListener('skin-studio:video-restored', onRestore)
+    return () => document.removeEventListener('skin-studio:video-restored', onRestore)
+  }, [])
+
   useEffect(() => {
     if (isForgeActive) inactiveWarned.current = false
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
-      customTheme = JSON.parse(JSON.stringify(state))
+      const st = JSON.parse(JSON.stringify(state))
+      // 竞态保护：面板 state 里 localVideoId 有值但 backgroundVideo 为空，
+      // 说明视频正由 restoreLocalVideo() 从 IndexedDB 异步恢复——此时覆盖
+      // customTheme 会把刚恢复的视频清掉（启动时 IDB 读得快，effect 慢，
+      // 先恢复后被覆盖）。跳过本次覆盖，等恢复完成自行发布。
+      if (st.forge.localVideoId && !st.forge.backgroundVideo) {
+        return
+      }
+      customTheme = st
       publishCustom()
       setSaved(true)
       // Edited while the forge theme is NOT active → nothing visibly changed.
@@ -3004,6 +3072,9 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                           ? '存储配额: ' + fmtSize(diag.quota) + ' / 已用 ' + fmtSize(diag.usage || 0)
                           : ''
                       }),
+                      jsx('div', { children: '当前视频ID: ' + (diag.vid || '无') }),
+                      jsx('div', { children: 'IDB读取: ' + (diag.idbSize === null ? '未测' : diag.idbSize < 0 ? '❌ 数据丢失' : fmtSize(diag.idbSize)) }),
+                      jsx('div', { className: 'col-span-2', children: '媒体库(' + (diag.libCount || 0) + '): ' + (diag.libNames || '空') }),
                       jsx('div', { children: diag.error ? '错误: ' + diag.error : '代码块背景: ' + (diag.bg || '无') }),
                       jsx('div', { className: 'col-span-2', children: '代码块文字: ' + (diag.color || '无') })
                     ]
