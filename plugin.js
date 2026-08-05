@@ -906,6 +906,9 @@ const ssHanziRain = filmTheme({
   overlayOpacity: 0.15,
   matrixRain: true,
   hanziRain: true,
+  // 汉字雨专属参数：繁体大字、慢速飘落（预设值，可在自定义主题中调节）。
+  rainFontSize: 26,
+  rainSpeed: 0.55,
   extraColors: { uiRed: '#C0392B', uiWarm: '#B08D2E', uiGreen: '#4A6B4A', uiBlue: '#3A5A7A', uiYellow: '#B08D2E', uiCyan: '#4A6A6A', uiPurple: '#6E5A8E', uiOrange: '#A86A3A' }
 })
 
@@ -1670,8 +1673,9 @@ function ensureObserver() {
 const FX_ID = 'skin-studio-fx'
 // 数字雨（原版 Matrix 风）：片假名 + 字母数字。
 const RAIN_LEGACY_CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF'
-// 汉字雨字符集：文言虚词 + 常用字 + 数字，营造「汉字从墨夜坠落」的意境。
-const RAIN_CHARS = '道可道非常道名可名非常名天地玄黄宇宙洪荒日月盈昃辰宿列张之乎者也兮哉山水云月风花雪雨墨纸砚琴棋书画春秋冬夏一二三四五六七八九十'
+// 汉字雨字符集（繁体）：文言虚词 + 常用字 + 千字文片段，营造「汉字从墨夜坠落」的意境。
+const RAIN_CHARS =
+  '道可道非常道名可名非常名天地玄黃宇宙洪荒日月盈昃辰宿列張之乎者也兮哉山水雲月風花雪雨墨紙硯琴棋書畫春秋冬夏龍鳳龜鶴松竹梅蘭荷菊詩詞賦曲夢夜霞霧一二三四五六七八九十'
 
 // 汉字雨模式：偶发朱砂印章红（读取 --ui-red，主题可调）。
 const HANZI_SEAL_RATE = 0.07
@@ -1722,8 +1726,22 @@ function resizeRain() {
   if (!rainCanvas) return
   rainCanvas.width = window.innerWidth
   rainCanvas.height = window.innerHeight
-  const cols = Math.ceil(rainCanvas.width / RAIN_FONT_SIZE)
-  rainCols = Array.from({ length: cols }, () => Math.floor(Math.random() * -rainCanvas.height) / RAIN_FONT_SIZE)
+  const forge = rainThemeForge()
+  const fontSize = rainFontSizeOf(forge)
+  const cols = Math.ceil(rainCanvas.width / fontSize)
+  rainCols = Array.from({ length: cols }, () => Math.floor(Math.random() * -rainCanvas.height) / fontSize)
+}
+
+// 雨特效参数：读当前激活主题的 forge（预设主题自带参数，自定义主题由面板调节）。
+function rainThemeForge() {
+  const activeName = document.documentElement.dataset.hermesTheme
+  return activeName ? themeMap.get(activeName)?.forge : null
+}
+function rainFontSizeOf(forge) {
+  return Math.max(12, Math.min(48, Number(forge?.rainFontSize) || RAIN_FONT_SIZE))
+}
+function rainSpeedOf(forge) {
+  return Math.max(0.15, Math.min(3, Number(forge?.rainSpeed) || 1))
 }
 
 function tickRain() {
@@ -1732,34 +1750,32 @@ function tickRain() {
   const w = rainCanvas.width
   const h = rainCanvas.height
   // 当前主题的 forge 配置（汉字雨模式从这里读取）。
-  const activeName = document.documentElement.dataset.hermesTheme
-  const forge = activeName ? themeMap.get(activeName)?.forge : null
+  const forge = rainThemeForge()
   const isHanzi = Boolean(forge?.hanziRain)
+  const fontSize = rainFontSizeOf(forge)
+  const speed = rainSpeedOf(forge)
   // 汉字雨用更淡的拖尾（墨韵），数字雨保持原版速度感。
-  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.045)' : 'rgba(0, 0, 0, 0.09)'
+  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.04)' : 'rgba(0, 0, 0, 0.09)'
   ctx.fillRect(0, 0, w, h)
   // Resolve the accent once per frame from the live theme (never hardcode).
   const accent =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-accent').trim() || '#00FF41'
-  // 汉字雨模式：雨滴用宣纸米白（主题前景色，在墨黑背景上清晰可见），
-  // 偶尔用朱砂红画一个字（印章点缀）。
-  const fg =
-    getComputedStyle(document.documentElement).getPropertyValue('--theme-foreground-seed').trim() ||
-    '#F5F1E8'
+  // 汉字雨模式：雨滴固定用宣纸米白（不依赖 CSS 变量——深色/浅色模式下
+  // 都清晰），偶尔用朱砂红画一个字（印章点缀）。
   const seal =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-red').trim() || '#C0392B'
-  const color = isHanzi ? fg : accent
-  // 字符集按模式分流：汉字雨用宋体汉字，数字雨保持原版片假名等宽。
+  const color = isHanzi ? '#F5F1E8' : accent
+  // 字符集按模式分流：汉字雨用繁体汉字，数字雨保持原版片假名等宽。
   const chars = isHanzi ? RAIN_CHARS : RAIN_LEGACY_CHARS
   ctx.font = isHanzi
-    ? RAIN_FONT_SIZE + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
-    : RAIN_FONT_SIZE + 'px "JetBrains Mono", ui-monospace, monospace'
+    ? fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
+    : fontSize + 'px "JetBrains Mono", ui-monospace, monospace'
   for (let i = 0; i < rainCols.length; i++) {
     ctx.fillStyle = isHanzi && Math.random() < HANZI_SEAL_RATE ? seal : color
     const ch = chars[Math.floor(Math.random() * chars.length)]
-    ctx.fillText(ch, i * RAIN_FONT_SIZE, rainCols[i] * RAIN_FONT_SIZE)
-    if (rainCols[i] * RAIN_FONT_SIZE > h && Math.random() > 0.975) rainCols[i] = 0
-    rainCols[i]++
+    ctx.fillText(ch, i * fontSize, rainCols[i] * fontSize)
+    if (rainCols[i] * fontSize > h && Math.random() > 0.975) rainCols[i] = 0
+    rainCols[i] += speed
   }
   rainRaf = requestAnimationFrame(tickRain)
 }
@@ -2955,6 +2971,72 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                           })
                   ]
                 }),
+              // 背景特效（雨）——作用于自定义主题，预设主题自带固定参数。
+              jsxs(Section, {
+                title: '背景特效（自定义主题）',
+                children: jsxs('div', {
+                  className: 'flex flex-col gap-2',
+                  children: [
+                    jsx(Segmented, {
+                      options: [
+                        ['none', '无'],
+                        ['hanzi', '汉字雨'],
+                        ['matrix', '数字雨']
+                      ],
+                      value: extras.hanziRain ? 'hanzi' : extras.matrixRain ? 'matrix' : 'none',
+                      onChange: v =>
+                        bumpExtras({ matrixRain: v === 'matrix', hanziRain: v === 'hanzi' })
+                    }),
+                    (extras.hanziRain || extras.matrixRain) &&
+                      jsx('div', {
+                        className: 'flex flex-col gap-2',
+                        children: [
+                          jsxs('div', {
+                            className: 'flex items-center gap-2',
+                            children: [
+                              jsx('input', {
+                                type: 'range',
+                                min: 12,
+                                max: 48,
+                                step: 1,
+                                value: extras.rainFontSize || 26,
+                                onChange: e => bumpExtras({ rainFontSize: Number(e.target.value) }),
+                                className: 'flex-1 accent-(--ui-accent)'
+                              }),
+                              jsx('span', {
+                                className: 'w-9 text-right font-mono text-[0.625rem] text-(--ui-text-tertiary)',
+                                children: '字 ' + (extras.rainFontSize || 26) + 'px'
+                              })
+                            ]
+                          }),
+                          jsxs('div', {
+                            className: 'flex items-center gap-2',
+                            children: [
+                              jsx('input', {
+                                type: 'range',
+                                min: 0.2,
+                                max: 2,
+                                step: 0.05,
+                                value: extras.rainSpeed || 1,
+                                onChange: e => bumpExtras({ rainSpeed: Number(e.target.value) }),
+                                className: 'flex-1 accent-(--ui-accent)'
+                              }),
+                              jsx('span', {
+                                className: 'w-9 text-right font-mono text-[0.625rem] text-(--ui-text-tertiary)',
+                                children: '速 ' + (extras.rainSpeed || 1).toFixed(2) + 'x'
+                              })
+                            ]
+                          })
+                        ]
+                      }),
+                    jsx('p', {
+                      className: 'text-[0.625rem] leading-relaxed text-(--ui-text-quaternary)',
+                      children:
+                        '汉字雨为繁体汉字+米白雨滴+朱砂红点缀。切换「皮肤工坊 · 自定义」主题后调节生效；预设主题（如「汉字雨」）使用各自默认参数。'
+                    })
+                  ]
+                })
+              }),
               tab === 'text' &&
                 jsxs('div', {
                   className: 'flex flex-col gap-4 pt-1',
