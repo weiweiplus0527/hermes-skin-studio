@@ -989,6 +989,54 @@ const STORAGE_KEY = 'ss-custom-v1'
 // a big data URI blew the localStorage quota and the ENTIRE save failed
 // silently, so slider tweaks rolled back on every reload.
 const STORAGE_IMG_KEY = 'ss-custom-img-v1'
+// 本地视频改存 IndexedDB（容量可达 GB 级，不再受 localStorage 3.5MB 限制）。
+// 主题 JSON 里只存 videoId 标记，启动时从 IDB 读回 blob → objectURL。
+const STORAGE_VIDEO_ID_KEY = 'ss-video-id'
+const IDB_NAME = 'skin-studio-media'
+const IDB_STORE = 'videos'
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+        req.result.createObjectStore(IDB_STORE)
+      }
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbPut(key, blob) {
+  const db = await idbOpen()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    tx.objectStore(IDB_STORE).put(blob, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
+async function idbGet(key) {
+  const db = await idbOpen()
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE).objectStore(IDB_STORE).get(key)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbDel(key) {
+  const db = await idbOpen()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    tx.objectStore(IDB_STORE).delete(key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+
 const PRESETS = [forgeCyber, forgeGlass, forgePaper, forgeMatrix, forgeHacker, ssInk, ssQinghua, ssGugong, ssBamboo, ssDunhuang, ssHanziRain, ssEva, ssGundam, ssMiku, ssKimetsu]
 const CUSTOM_NAME = 'ss-custom'
 
@@ -1016,10 +1064,11 @@ function loadCustom() {
     if (parsed && typeof parsed === 'object' && parsed.colors && parsed.forge) {
       const base = defaultCustom()
       const forge = { ...TEXT_DEFAULTS, ...base.forge, ...(parsed.forge || {}) }
-      // blob: URLs die with the session that minted them — a stored one from a
-      // previous run is a dead reference (local video that didn't persist).
+      // blob: URLs die with the session that minted them. 有 localVideoId 标记的
+      // 说明视频存在 IndexedDB，restoreLocalVideo() 会异步读回（这里先清空）；
+      // 没有标记的旧 blob 是死引用，直接清。
       if (typeof forge.backgroundVideo === 'string' && forge.backgroundVideo.startsWith('blob:')) {
-        forge.backgroundVideo = null
+        if (!forge.localVideoId) forge.backgroundVideo = null
       }
       // Wallpaper data URI from its dedicated key (large images live there so
       // they can't block the theme save). Older saves carry the data URI
@@ -1045,15 +1094,50 @@ function loadCustom() {
 
 let saveWarned = false
 
+// 启动时从 IndexedDB 恢复本地视频（大视频持久化的关键一步）。
+async function restoreLocalVideo() {
+  try {
+    const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
+    if (!vid || !customTheme) return
+    const blob = await idbGet(vid)
+    if (blob) {
+      customTheme.forge.backgroundVideo = URL.createObjectURL(blob)
+      customTheme.forge.localVideoId = vid
+      publishCustom()
+    } else {
+      // IDB 记录丢失（数据库被清）——清理标记，避免死引用。
+      storage?.remove(STORAGE_VIDEO_ID_KEY)
+      if (customTheme.forge.localVideoId) {
+        customTheme.forge.localVideoId = null
+        customTheme.forge.backgroundVideo = null
+        publishCustom()
+      }
+    }
+  } catch {
+    // 静默失败：主题本身仍可用，只是视频回到未设置状态。
+  }
+}
+
 function saveCustom() {
   // Split the payload: the theme (colors, blur, overlay, text) saves ALWAYS —
   // a big wallpaper data URI must never be able to roll back slider tweaks.
   // The image goes to its own key; if IT overflows, only the image is lost.
+  // blob: 视频 URL 不写进 localStorage（会话级引用，重启失效）——
+  // 视频本体存在 IndexedDB，restoreLocalVideo() 负责恢复。
   const forge = customTheme.forge || {}
   const inlineImg = forge.backgroundImage
   const isData = typeof inlineImg === 'string' && inlineImg.startsWith('data:')
-  const themeForSave = isData
-    ? { ...customTheme, forge: { ...forge, backgroundImage: null } }
+  const isBlobVideo =
+    typeof forge.backgroundVideo === 'string' && forge.backgroundVideo.startsWith('blob:')
+  const themeForSave = isData || isBlobVideo
+    ? {
+        ...customTheme,
+        forge: {
+          ...forge,
+          backgroundImage: isData ? null : forge.backgroundImage,
+          backgroundVideo: isBlobVideo ? null : forge.backgroundVideo
+        }
+      }
     : customTheme
   try {
     storage?.set(STORAGE_KEY, JSON.stringify(themeForSave))
@@ -1454,9 +1538,16 @@ function paintMedia(theme) {
       v.setAttribute('playsinline', '')
       v.setAttribute('preload', 'auto')
       v.style.cssText = base + `object-fit:${fit};`
-      v.addEventListener('error', () =>
+      v.addEventListener('error', () => {
         console.error('[skin-studio] 背景视频加载失败: ' + String(video).slice(0, 120))
-      )
+        if (typeof host !== 'undefined') {
+          host.notify({
+            kind: 'error',
+            message:
+              '视频加载失败——请确认是视频文件直链（以 .mp4/.webm 结尾），且网站允许外链播放。'
+          })
+        }
+      })
       host.appendChild(v)
       mediaEl = v
       mediaIsVideo = true
@@ -1980,6 +2071,8 @@ export default {
 
     for (const theme of PRESETS) registerTheme(theme)
     customDisposer = registerTheme(customTheme)
+    // 从 IndexedDB 异步恢复本地视频（大视频持久化）。
+    restoreLocalVideo()
 
     // Persistence across restarts/updates: if the backend config still points
     // at a forge skin, re-assert it (re-writing display.skin bumps the config
@@ -2139,12 +2232,9 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
     bumpExtras({ backgroundImage: null })
   }
 
-  // Local video picker. Session-first: URL.createObjectURL plays instantly with
-  // no quota cost. Persistence is best-effort — the bytes only survive a
-  // restart if they fit localStorage as a data URI (videos are heavy, so the
-  // cap is tight); bigger files get an honest one-time warning.
-  const VIDEO_PERSIST_MAX = 3.5 * 1024 * 1024
-
+  // Local video picker. 视频存 IndexedDB（容量大，不再受 localStorage 限制）：
+  // blob URL 即时播放，同时把 File 写入 IDB；重启后从 IDB 读回恢复。
+  // 只有删除视频时才清理 IDB 记录。
   function pickLocalVideo(file) {
     if (!file) return
     const type = String(file.type || '')
@@ -2156,26 +2246,33 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
       return
     }
     const objUrl = URL.createObjectURL(file)
-    const persistent = file.size <= VIDEO_PERSIST_MAX
-    setLocalVideo({ name: file.name, size: file.size, persistent })
-    bumpExtras({ backgroundVideo: objUrl })
-    if (persistent) {
-      const reader = new FileReader()
-      reader.onload = () => bumpExtras({ backgroundVideo: reader.result })
-      reader.onerror = () => console.error('[skin-studio] 读取本地视频失败')
-      reader.readAsDataURL(file)
-    } else {
-      host.notify({
-        kind: 'info',
-        message:
-          '视频过大无法保存（上限 3.5MB）——当前会话可用。重启后想保留，请粘贴视频链接（URL）。'
+    const videoId = 'v-' + Date.now()
+    setLocalVideo({ name: file.name, size: file.size, persistent: true })
+    bumpExtras({ backgroundVideo: objUrl, localVideoId: videoId })
+    idbPut(videoId, file)
+      .then(() => {
+        storage?.set(STORAGE_VIDEO_ID_KEY, videoId)
+        host.notify({
+          kind: 'info',
+          message: `视频已保存（${fmtSize(file.size)}，重启后依然保留）`
+        })
       })
-    }
+      .catch(() => {
+        host.notify({
+          kind: 'error',
+          message: '视频保存失败——当前会话可用，重启后需重新选择。'
+        })
+      })
   }
 
   function clearLocalVideo() {
     setLocalVideo(null)
-    bumpExtras({ backgroundVideo: null })
+    bumpExtras({ backgroundVideo: null, localVideoId: null })
+    const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
+    if (vid) {
+      idbDel(vid).catch(() => {})
+      storage?.remove(STORAGE_VIDEO_ID_KEY)
+    }
   }
 
   function fmtSize(bytes) {
@@ -2578,7 +2675,17 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                               !extras.backgroundVideo.startsWith('blob:')
                                 ? extras.backgroundVideo
                                 : '',
-                            onChange: e => bumpExtras({ backgroundVideo: e.target.value || null })
+                            onChange: e => {
+                              const url = e.target.value || null
+                              bumpExtras({ backgroundVideo: url, localVideoId: null })
+                              if (url && !/\.(mp4|webm|mov|m4v|ogv)(\?.*)?$/i.test(url)) {
+                                host.notify({
+                                  kind: 'info',
+                                  message:
+                                    '提示：这看起来不是视频文件直链（结尾需是 .mp4/.webm）。网页播放页链接无法作为背景视频。'
+                                })
+                              }
+                            }
                           })
                         ]
                       }),
