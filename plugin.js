@@ -906,9 +906,9 @@ const ssHanziRain = filmTheme({
   overlayOpacity: 0.15,
   matrixRain: true,
   hanziRain: true,
-  // 汉字雨专属参数：繁体大字、慢速飘落（预设值，可在自定义主题中调节）。
+  // 汉字雨专属参数：繁体大字、中速飘落（预设值，可在自定义主题中调节）。
   rainFontSize: 26,
-  rainSpeed: 0.3,
+  rainSpeed: 0.5,
   extraColors: { uiRed: '#C0392B', uiWarm: '#B08D2E', uiGreen: '#4A6B4A', uiBlue: '#3A5A7A', uiYellow: '#B08D2E', uiCyan: '#4A6A6A', uiPurple: '#6E5A8E', uiOrange: '#A86A3A' }
 })
 
@@ -1738,13 +1738,13 @@ function resizeRain() {
   const fontSize = rainFontSizeOf(forge)
   const isHanzi = Boolean(forge?.hanziRain)
   if (isHanzi) {
-    // 汉字雨（列链模式）：列距 4x 字号——非常稀疏，安静不打扰。
-    const step = fontSize * 4
+    // 汉字雨（列链模式）：列距 2.5x 字号——密度折中（明显但不拥挤）。
+    const step = fontSize * 2.5
     const cols = Math.ceil(rainCanvas.width / step)
     rainCols = Array.from({ length: cols }, () => ({
       y: Math.random() * -rainCanvas.height,
       acc: Math.random(), // 累积位移（控制加字节奏，慢速不堆字的关键）
-      len: 2 + Math.floor(Math.random() * 3), // 尾链长度 2–4 字
+      len: 3 + Math.floor(Math.random() * 3), // 尾链长度 3–5 字
       chars: []
     }))
   } else {
@@ -1765,8 +1765,8 @@ function rainFontSizeOf(forge) {
   return Math.max(12, Math.min(48, Number(forge?.rainFontSize) || def))
 }
 function rainSpeedOf(forge) {
-  // 汉字雨默认慢速（0.35），数字雨保持原版速度（1）。
-  const def = forge?.hanziRain ? 0.35 : 1
+  // 汉字雨默认中速（0.5——明显但有动感，不晃眼），数字雨保持原版速度（1）。
+  const def = forge?.hanziRain ? 0.5 : 1
   return Math.max(0.15, Math.min(3, Number(forge?.rainSpeed) || def))
 }
 
@@ -1824,14 +1824,14 @@ function tickRainInner() {
     ctx.shadowBlur = 6
     ctx.shadowOffsetX = 1
     ctx.shadowOffsetY = 1
-    const step = fontSize * 4
+    const step = fontSize * 2.5
     for (let i = 0; i < rainCols.length; i++) {
       const col = rainCols[i]
       col.y += speed * fontSize
       col.acc += speed
       if (col.y - col.len * fontSize > h) {
         col.y = -Math.random() * h
-        col.len = 2 + Math.floor(Math.random() * 3)
+        col.len = 3 + Math.floor(Math.random() * 3)
         col.chars = []
       }
       while (col.acc >= 1) {
@@ -3131,13 +3131,13 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                                 min: 0.2,
                                 max: 2,
                                 step: 0.05,
-                                value: extras.rainSpeed || (extras.hanziRain ? 0.35 : 1),
+                                value: extras.rainSpeed || (extras.hanziRain ? 0.5 : 1),
                                 onChange: e => bumpExtras({ rainSpeed: Number(e.target.value) }),
                                 className: 'flex-1 accent-(--ui-accent)'
                               }),
                               jsx('span', {
                                 className: 'w-9 text-right font-mono text-[0.625rem] text-(--ui-text-tertiary)',
-                                children: '速 ' + (extras.rainSpeed || (extras.hanziRain ? 0.35 : 1)).toFixed(2) + 'x'
+                                children: '速 ' + (extras.rainSpeed || (extras.hanziRain ? 0.5 : 1)).toFixed(2) + 'x'
                               })
                             ]
                           })
