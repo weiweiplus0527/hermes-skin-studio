@@ -1799,7 +1799,7 @@ function startFx(theme) {
     overlayEl.remove()
     overlayEl = null
   }
-  if (f.matrixRain) startMatrixRain()
+  if (f.matrixRain || f.hanziRain) startMatrixRain()
   if (f.scanlines) addScanlines()
 }
 
