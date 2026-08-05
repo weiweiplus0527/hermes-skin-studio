@@ -1807,15 +1807,17 @@ function tickRainInner() {
   }
   const accent =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-accent').trim() || '#00FF41'
-  const seal =
-    getComputedStyle(document.documentElement).getPropertyValue('--ui-red').trim() || '#C0392B'
+  // 汉字雨印章：固定亮朱砂（不读变量——玻璃之下要醒目）。
+  const seal = '#E64A3A'
 
   if (isHanzi) {
     // 汉字雨（列链模式）：每列一串字，头部亮、尾部渐隐——慢速不堆字、
     // 不闪烁、不抢视野。头部 7% 概率朱砂印章红。
     // 加字节奏：累积位移满一个字距才加新字（速度再慢，字距也恒为字号，
     // 不会挤成一团）。
-    ctx.font = fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
+    // 颜色用高亮白（雨层在玻璃之下会被半透明背景压暗，必须够亮）。
+    ctx.font =
+      '600 ' + fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
     const step = fontSize * 4
     for (let i = 0; i < rainCols.length; i++) {
       const col = rainCols[i]
@@ -1832,12 +1834,12 @@ function tickRainInner() {
         if (col.chars.length > col.len) col.chars.pop()
       }
       for (let k = 0; k < col.chars.length; k++) {
-        // 头部 0.9 亮度，尾部渐隐到 0.15——链分明，柔和不刺眼。
-        const alpha = k === 0 ? 0.9 : Math.max(0.15, 0.4 - k * 0.09)
+        // 头部纯白 1.0，尾部渐隐到 0.3——玻璃之下依然清晰。
+        const alpha = k === 0 ? 1 : Math.max(0.3, 0.6 - k * 0.12)
         ctx.fillStyle =
           k === 0 && Math.random() < HANZI_SEAL_RATE
             ? seal
-            : `rgba(245, 241, 232, ${alpha.toFixed(2)})`
+            : `rgba(255, 255, 255, ${alpha.toFixed(2)})`
         ctx.fillText(col.chars[k], i * step, col.y - k * fontSize)
       }
     }
