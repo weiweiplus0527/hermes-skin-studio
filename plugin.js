@@ -1760,7 +1760,9 @@ function rainThemeForge() {
   return activeName ? themeMap.get(activeName)?.forge : null
 }
 function rainFontSizeOf(forge) {
-  return Math.max(12, Math.min(48, Number(forge?.rainFontSize) || RAIN_FONT_SIZE))
+  // 汉字雨默认 26px（大字清晰），数字雨保持原版 15px。
+  const def = forge?.hanziRain ? 26 : RAIN_FONT_SIZE
+  return Math.max(12, Math.min(48, Number(forge?.rainFontSize) || def))
 }
 function rainSpeedOf(forge) {
   // 汉字雨默认慢速（0.35），数字雨保持原版速度（1）。
@@ -1771,6 +1773,16 @@ function rainSpeedOf(forge) {
 let lastRainFontSize = null
 
 function tickRain() {
+  // 异常保护：任何绘制错误都不能中断雨循环（否则雨永久消失）。
+  try {
+    tickRainInner()
+  } catch (e) {
+    console.error('[skin-studio] 雨绘制异常（已忽略）:', e && e.message ? e.message : e)
+  }
+  rainRaf = requestAnimationFrame(tickRain)
+}
+
+function tickRainInner() {
   if (!rainCtx || !rainCanvas) return
   const ctx = rainCtx
   const w = rainCanvas.width
@@ -1840,7 +1852,6 @@ function tickRain() {
       rainCols[i] += speed
     }
   }
-  rainRaf = requestAnimationFrame(tickRain)
 }
 function startMatrixRain() {
   if (typeof document === 'undefined') return
