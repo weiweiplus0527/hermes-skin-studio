@@ -1739,11 +1739,16 @@ function tickRain() {
   ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.045)' : 'rgba(0, 0, 0, 0.09)'
   ctx.fillRect(0, 0, w, h)
   // Resolve the accent once per frame from the live theme (never hardcode).
-  const color =
+  const accent =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-accent').trim() || '#00FF41'
-  // 汉字雨模式：偶尔用朱砂红画一个字（印章点缀）。
+  // 汉字雨模式：雨滴用宣纸米白（主题前景色，在墨黑背景上清晰可见），
+  // 偶尔用朱砂红画一个字（印章点缀）。
+  const fg =
+    getComputedStyle(document.documentElement).getPropertyValue('--theme-foreground-seed').trim() ||
+    '#F5F1E8'
   const seal =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-red').trim() || '#C0392B'
+  const color = isHanzi ? fg : accent
   // 字符集按模式分流：汉字雨用宋体汉字，数字雨保持原版片假名等宽。
   const chars = isHanzi ? RAIN_CHARS : RAIN_LEGACY_CHARS
   ctx.font = isHanzi
