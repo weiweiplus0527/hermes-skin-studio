@@ -1728,7 +1728,11 @@ function resizeRain() {
   rainCanvas.height = window.innerHeight
   const forge = rainThemeForge()
   const fontSize = rainFontSizeOf(forge)
-  const cols = Math.ceil(rainCanvas.width / fontSize)
+  const isHanzi = Boolean(forge?.hanziRain)
+  // 汉字雨列距放宽到 1.4x 字号（字与字之间留白，疏朗不拥挤）；
+  // 数字雨保持 1x 等宽。
+  const step = isHanzi ? fontSize * 1.4 : fontSize
+  const cols = Math.ceil(rainCanvas.width / step)
   rainCols = Array.from({ length: cols }, () => Math.floor(Math.random() * -rainCanvas.height) / fontSize)
 }
 
@@ -1744,6 +1748,8 @@ function rainSpeedOf(forge) {
   return Math.max(0.15, Math.min(3, Number(forge?.rainSpeed) || 1))
 }
 
+let lastRainFontSize = null
+
 function tickRain() {
   if (!rainCtx || !rainCanvas) return
   const ctx = rainCtx
@@ -1754,8 +1760,15 @@ function tickRain() {
   const isHanzi = Boolean(forge?.hanziRain)
   const fontSize = rainFontSizeOf(forge)
   const speed = rainSpeedOf(forge)
+  // 字号变化时重建列布局——否则列间距还是旧字号，大字会重叠堆在一起。
+  if (lastRainFontSize !== fontSize) {
+    lastRainFontSize = fontSize
+    resizeRain()
+  }
+  // 汉字雨列距 1.4x 字号，数字雨 1x。
+  const step = isHanzi ? fontSize * 1.4 : fontSize
   // 汉字雨用更淡的拖尾（墨韵），数字雨保持原版速度感。
-  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.04)' : 'rgba(0, 0, 0, 0.09)'
+  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0.09)'
   ctx.fillRect(0, 0, w, h)
   // Resolve the accent once per frame from the live theme (never hardcode).
   const accent =
@@ -1773,7 +1786,7 @@ function tickRain() {
   for (let i = 0; i < rainCols.length; i++) {
     ctx.fillStyle = isHanzi && Math.random() < HANZI_SEAL_RATE ? seal : color
     const ch = chars[Math.floor(Math.random() * chars.length)]
-    ctx.fillText(ch, i * fontSize, rainCols[i] * fontSize)
+    ctx.fillText(ch, i * step, rainCols[i] * fontSize)
     if (rainCols[i] * fontSize > h && Math.random() > 0.975) rainCols[i] = 0
     rainCols[i] += speed
   }
