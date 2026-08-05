@@ -2350,6 +2350,9 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
         const injected = cssEl ? cssEl.textContent.length : 0
         const vid = storage?.get(STORAGE_VIDEO_ID_KEY, null)
         const lib = readVideoLib()
+        const rainState = rainCanvas
+          ? 'canvas✓' + (rainRaf ? '+动画' : '+停')
+          : '无canvas'
         storageEstimate().then(est => {
           setDiag({
             active,
@@ -2363,7 +2366,8 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
             usage: est ? est.usage : null,
             vid,
             libCount: lib.length,
-            libNames: lib.map(e => e.name).join('、')
+            libNames: lib.map(e => e.name).join('、'),
+            rainState
           })
         })
         // 实测 IDB：当前视频数据能否读到（大小 / 丢失）。
@@ -2585,12 +2589,12 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
       const st = JSON.parse(JSON.stringify(state))
-      // 竞态保护：面板 state 里 localVideoId 有值但 backgroundVideo 为空，
-      // 说明视频正由 restoreLocalVideo() 从 IndexedDB 异步恢复——此时覆盖
-      // customTheme 会把刚恢复的视频清掉（启动时 IDB 读得快，effect 慢，
-      // 先恢复后被覆盖）。跳过本次覆盖，等恢复完成自行发布。
+      // 视频补回：state 有 localVideoId 但缺 blob 视频（视频由 IndexedDB
+      // 异步恢复、或面板 state 尚未同步）时，继承 customTheme 当前视频——
+      // 保证编辑永远生效，且不会覆盖掉已恢复的视频。
       if (st.forge.localVideoId && !st.forge.backgroundVideo) {
-        return
+        const cur = customTheme && customTheme.forge && customTheme.forge.backgroundVideo
+        if (cur) st.forge.backgroundVideo = cur
       }
       customTheme = st
       publishCustom()
@@ -3246,6 +3250,7 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                           : ''
                       }),
                       jsx('div', { children: '当前视频ID: ' + (diag.vid || '无') }),
+                      jsx('div', { children: '雨状态: ' + (diag.rainState || '?') }),
                       jsx('div', { children: 'IDB读取: ' + (diag.idbSize === null ? '未测' : diag.idbSize < 0 ? '❌ 数据丢失' : fmtSize(diag.idbSize)) }),
                       jsx('div', { className: 'col-span-2', children: '媒体库(' + (diag.libCount || 0) + '): ' + (diag.libNames || '空') }),
                       jsx('div', { children: diag.error ? '错误: ' + diag.error : '代码块背景: ' + (diag.bg || '无') }),
