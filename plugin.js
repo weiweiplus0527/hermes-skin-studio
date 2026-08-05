@@ -908,7 +908,7 @@ const ssHanziRain = filmTheme({
   hanziRain: true,
   // 汉字雨专属参数：繁体大字、慢速飘落（预设值，可在自定义主题中调节）。
   rainFontSize: 26,
-  rainSpeed: 0.55,
+  rainSpeed: 0.3,
   extraColors: { uiRed: '#C0392B', uiWarm: '#B08D2E', uiGreen: '#4A6B4A', uiBlue: '#3A5A7A', uiYellow: '#B08D2E', uiCyan: '#4A6A6A', uiPurple: '#6E5A8E', uiOrange: '#A86A3A' }
 })
 
@@ -1730,12 +1730,12 @@ function resizeRain() {
   const fontSize = rainFontSizeOf(forge)
   const isHanzi = Boolean(forge?.hanziRain)
   if (isHanzi) {
-    // 汉字雨（列链模式）：列距 2x 字号，稀疏疏朗不抢视野。
-    const step = fontSize * 2
+    // 汉字雨（列链模式）：列距 3x 字号——稀疏疏朗，不抢视野。
+    const step = fontSize * 3
     const cols = Math.ceil(rainCanvas.width / step)
     rainCols = Array.from({ length: cols }, () => ({
       y: Math.random() * -rainCanvas.height,
-      len: 3 + Math.floor(Math.random() * 5), // 尾链长度 3–7 字
+      len: 2 + Math.floor(Math.random() * 4), // 尾链长度 2–5 字
       chars: []
     }))
   } else {
@@ -1754,7 +1754,9 @@ function rainFontSizeOf(forge) {
   return Math.max(12, Math.min(48, Number(forge?.rainFontSize) || RAIN_FONT_SIZE))
 }
 function rainSpeedOf(forge) {
-  return Math.max(0.15, Math.min(3, Number(forge?.rainSpeed) || 1))
+  // 汉字雨默认慢速（0.35），数字雨保持原版速度（1）。
+  const def = forge?.hanziRain ? 0.35 : 1
+  return Math.max(0.15, Math.min(3, Number(forge?.rainSpeed) || def))
 }
 
 let lastRainFontSize = null
@@ -1786,7 +1788,7 @@ function tickRain() {
     // 汉字雨（列链模式）：每列一串字，头部亮、尾部渐隐——慢速不堆字、
     // 不闪烁、不抢视野。头部 7% 概率朱砂印章红。
     ctx.font = fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
-    const step = fontSize * 2
+    const step = fontSize * 3
     for (let i = 0; i < rainCols.length; i++) {
       const col = rainCols[i]
       col.y += speed * fontSize
@@ -3058,13 +3060,13 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                                 min: 0.2,
                                 max: 2,
                                 step: 0.05,
-                                value: extras.rainSpeed || 1,
+                                value: extras.rainSpeed || (extras.hanziRain ? 0.35 : 1),
                                 onChange: e => bumpExtras({ rainSpeed: Number(e.target.value) }),
                                 className: 'flex-1 accent-(--ui-accent)'
                               }),
                               jsx('span', {
                                 className: 'w-9 text-right font-mono text-[0.625rem] text-(--ui-text-tertiary)',
-                                children: '速 ' + (extras.rainSpeed || 1).toFixed(2) + 'x'
+                                children: '速 ' + (extras.rainSpeed || (extras.hanziRain ? 0.35 : 1)).toFixed(2) + 'x'
                               })
                             ]
                           })
