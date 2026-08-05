@@ -1729,11 +1729,20 @@ function resizeRain() {
   const forge = rainThemeForge()
   const fontSize = rainFontSizeOf(forge)
   const isHanzi = Boolean(forge?.hanziRain)
-  // 汉字雨列距放宽到 1.4x 字号（字与字之间留白，疏朗不拥挤）；
-  // 数字雨保持 1x 等宽。
-  const step = isHanzi ? fontSize * 1.4 : fontSize
-  const cols = Math.ceil(rainCanvas.width / step)
-  rainCols = Array.from({ length: cols }, () => Math.floor(Math.random() * -rainCanvas.height) / fontSize)
+  if (isHanzi) {
+    // 汉字雨（列链模式）：列距 2x 字号，稀疏疏朗不抢视野。
+    const step = fontSize * 2
+    const cols = Math.ceil(rainCanvas.width / step)
+    rainCols = Array.from({ length: cols }, () => ({
+      y: Math.random() * -rainCanvas.height,
+      len: 3 + Math.floor(Math.random() * 5), // 尾链长度 3–7 字
+      chars: []
+    }))
+  } else {
+    // 数字雨：原版单字 + 拖尾。
+    const cols = Math.ceil(rainCanvas.width / fontSize)
+    rainCols = Array.from({ length: cols }, () => Math.floor(Math.random() * -rainCanvas.height) / fontSize)
+  }
 }
 
 // 雨特效参数：读当前激活主题的 forge（预设主题自带参数，自定义主题由面板调节）。
@@ -1765,30 +1774,49 @@ function tickRain() {
     lastRainFontSize = fontSize
     resizeRain()
   }
-  // 汉字雨列距 1.4x 字号，数字雨 1x。
-  const step = isHanzi ? fontSize * 1.4 : fontSize
-  // 汉字雨用更淡的拖尾（墨韵），数字雨保持原版速度感。
-  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0.09)'
+  // 淡擦除：汉字雨更淡（墨韵），数字雨保留速度感。
+  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.07)' : 'rgba(0, 0, 0, 0.09)'
   ctx.fillRect(0, 0, w, h)
-  // Resolve the accent once per frame from the live theme (never hardcode).
   const accent =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-accent').trim() || '#00FF41'
-  // 汉字雨模式：雨滴固定用宣纸米白（不依赖 CSS 变量——深色/浅色模式下
-  // 都清晰），偶尔用朱砂红画一个字（印章点缀）。
   const seal =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-red').trim() || '#C0392B'
-  const color = isHanzi ? '#F5F1E8' : accent
-  // 字符集按模式分流：汉字雨用繁体汉字，数字雨保持原版片假名等宽。
-  const chars = isHanzi ? RAIN_CHARS : RAIN_LEGACY_CHARS
-  ctx.font = isHanzi
-    ? fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
-    : fontSize + 'px "JetBrains Mono", ui-monospace, monospace'
-  for (let i = 0; i < rainCols.length; i++) {
-    ctx.fillStyle = isHanzi && Math.random() < HANZI_SEAL_RATE ? seal : color
-    const ch = chars[Math.floor(Math.random() * chars.length)]
-    ctx.fillText(ch, i * step, rainCols[i] * fontSize)
-    if (rainCols[i] * fontSize > h && Math.random() > 0.975) rainCols[i] = 0
-    rainCols[i] += speed
+
+  if (isHanzi) {
+    // 汉字雨（列链模式）：每列一串字，头部亮、尾部渐隐——慢速不堆字、
+    // 不闪烁、不抢视野。头部 7% 概率朱砂印章红。
+    ctx.font = fontSize + 'px "Songti SC", "STSong", "Noto Serif SC", "Kaiti SC", serif'
+    const step = fontSize * 2
+    for (let i = 0; i < rainCols.length; i++) {
+      const col = rainCols[i]
+      col.y += speed * fontSize
+      if (col.y - col.len * fontSize > h) {
+        col.y = -Math.random() * h
+        col.len = 3 + Math.floor(Math.random() * 5)
+        col.chars = []
+      }
+      col.chars.unshift(RAIN_CHARS[Math.floor(Math.random() * RAIN_CHARS.length)])
+      if (col.chars.length > col.len) col.chars.pop()
+      for (let k = 0; k < col.chars.length; k++) {
+        // 头部 0.85 亮度，尾部渐隐到 0.12——柔和不刺眼。
+        const alpha = k === 0 ? 0.85 : Math.max(0.12, 0.45 - k * 0.11)
+        ctx.fillStyle =
+          k === 0 && Math.random() < HANZI_SEAL_RATE
+            ? seal
+            : `rgba(245, 241, 232, ${alpha.toFixed(2)})`
+        ctx.fillText(col.chars[k], i * step, col.y - k * fontSize)
+      }
+    }
+  } else {
+    // 数字雨：原版单字 + 拖尾（荧光绿系）。
+    ctx.font = fontSize + 'px "JetBrains Mono", ui-monospace, monospace'
+    for (let i = 0; i < rainCols.length; i++) {
+      ctx.fillStyle = accent
+      const ch = RAIN_LEGACY_CHARS[Math.floor(Math.random() * RAIN_LEGACY_CHARS.length)]
+      ctx.fillText(ch, i * fontSize, rainCols[i] * fontSize)
+      if (rainCols[i] * fontSize > h && Math.random() > 0.975) rainCols[i] = 0
+      rainCols[i] += speed
+    }
   }
   rainRaf = requestAnimationFrame(tickRain)
 }
