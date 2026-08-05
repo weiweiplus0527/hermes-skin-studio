@@ -906,9 +906,9 @@ const ssHanziRain = filmTheme({
   overlayOpacity: 0.15,
   matrixRain: true,
   hanziRain: true,
-  // 汉字雨专属参数：繁体大字、中速飘落（预设值，可在自定义主题中调节）。
+  // 汉字雨专属参数：繁体大字、无媒体时慢速飘落（预设值，可在自定义主题中调节）。
   rainFontSize: 26,
-  rainSpeed: 0.5,
+  rainSpeed: 0.3,
   extraColors: { uiRed: '#C0392B', uiWarm: '#B08D2E', uiGreen: '#4A6B4A', uiBlue: '#3A5A7A', uiYellow: '#B08D2E', uiCyan: '#4A6A6A', uiPurple: '#6E5A8E', uiOrange: '#A86A3A' }
 })
 
@@ -1768,8 +1768,13 @@ function rainFontSizeOf(forge) {
   return Math.max(12, Math.min(48, Number(forge?.rainFontSize) || def))
 }
 function rainSpeedOf(forge) {
-  // 汉字雨默认中速（0.5——明显但有动感，不晃眼），数字雨保持原版速度（1）。
-  const def = forge?.hanziRain ? 0.5 : 1
+  // 汉字雨默认速度跟随背景：有背景图/视频时 0.5（动感），无背景图时 0.3
+  //（纯色背景上运动感更强，慢一点视觉才一致）。数字雨保持原版速度（1）。
+  const def = forge?.hanziRain
+    ? forge.backgroundImage || forge.backgroundVideo
+      ? 0.5
+      : 0.3
+    : 1
   return Math.max(0.15, Math.min(3, Number(forge?.rainSpeed) || def))
 }
 
@@ -3134,13 +3139,13 @@ function PaneInner({ activeTheme, isForgeActive, wide = false }) {
                                 min: 0.2,
                                 max: 2,
                                 step: 0.05,
-                                value: extras.rainSpeed || (extras.hanziRain ? 0.5 : 1),
+                                value: extras.rainSpeed || (extras.hanziRain ? (extras.backgroundImage || extras.backgroundVideo ? 0.5 : 0.3) : 1),
                                 onChange: e => bumpExtras({ rainSpeed: Number(e.target.value) }),
                                 className: 'flex-1 accent-(--ui-accent)'
                               }),
                               jsx('span', {
                                 className: 'w-9 text-right font-mono text-[0.625rem] text-(--ui-text-tertiary)',
-                                children: '速 ' + (extras.rainSpeed || (extras.hanziRain ? 0.5 : 1)).toFixed(2) + 'x'
+                                children: '速 ' + (extras.rainSpeed || (extras.hanziRain ? (extras.backgroundImage || extras.backgroundVideo ? 0.5 : 0.3) : 1)).toFixed(2) + 'x'
                               })
                             ]
                           })
