@@ -1777,8 +1777,9 @@ function tickRain() {
     lastRainFontSize = fontSize
     resizeRain()
   }
-  // 淡擦除：汉字雨更淡（墨韵），数字雨保留速度感。
-  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.07)' : 'rgba(0, 0, 0, 0.09)'
+  // 淡擦除：汉字雨擦除率高（0.18）——慢速下旧帧残影快速消失，
+  // 字迹清晰移动不堆墨；数字雨保留原版拖尾（0.09）。
+  ctx.fillStyle = isHanzi ? 'rgba(0, 0, 0, 0.18)' : 'rgba(0, 0, 0, 0.09)'
   ctx.fillRect(0, 0, w, h)
   const accent =
     getComputedStyle(document.documentElement).getPropertyValue('--ui-accent').trim() || '#00FF41'
@@ -1807,8 +1808,8 @@ function tickRain() {
         if (col.chars.length > col.len) col.chars.pop()
       }
       for (let k = 0; k < col.chars.length; k++) {
-        // 头部 0.85 亮度，尾部渐隐到 0.12——柔和不刺眼。
-        const alpha = k === 0 ? 0.85 : Math.max(0.12, 0.45 - k * 0.11)
+        // 头部 0.9 亮度，尾部渐隐到 0.15——链分明，柔和不刺眼。
+        const alpha = k === 0 ? 0.9 : Math.max(0.15, 0.4 - k * 0.09)
         ctx.fillStyle =
           k === 0 && Math.random() < HANZI_SEAL_RATE
             ? seal
